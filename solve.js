@@ -1,10 +1,28 @@
 // solve.js — a faster drop-in for csv-reader 1.0.0.
 // Same semantics as the reference (baselines/csv-reader/vendor/csv-reader/index.js):
 // indexOf-driven scanning, string slicing instead of char-by-char concatenation.
+// Line counting: the line increments for every LF, CRLF and lone CR met while
+// reading (the reference counts the character it reads), so quoted segments
+// count their CRs/LFs before appending.
 
 const COMMA = 0;
 const LINE_BREAK = 1;
 const END = 2;
+
+// Count CRLF and LF in s[start..end); lone CRs are NOT counted here — but in a
+// quoted field each lone CR becomes an LF (counts), so callers pass flags.
+function countBreaks(s, start, end, inQuotes) {
+  let c = 0;
+  for (let i = start; i < end; i++) {
+    const ch = s.charCodeAt(i);
+    if (ch === 10) c++;
+    else if (ch === 13) {
+      if (i + 1 < end && s.charCodeAt(i + 1) === 10) { c++; i++; }
+      else if (inQuotes) c++;
+    }
+  }
+  return c;
+}
 
 export function run(input) {
   const text = String(input.text);
@@ -21,18 +39,10 @@ export function run(input) {
 
   let recordLine = 1;
   let recordRow = null;
-  let value = '';      // result of the last field read
-  let added = 0;       // chars the unquoted reader kept (for quote_junk)
-  let ended = END;     // how the last field ended
-  let quoted = false;  // whether the last field opened with a quote
-
-  // skip empty lines (a line with no characters is no record)
-  while (pos < n) {
-    const c = text.charCodeAt(pos);
-    if (c === 10) { pos++; line++; }
-    else if (c === 13 && pos + 1 < n && text.charCodeAt(pos + 1) === 10) { pos += 2; line++; }
-    else break;
-  }
+  let value = '';
+  let added = 0;
+  let ended = END;
+  let quoted = false;
 
   function readUnquoted() {
     quoted = false;
@@ -52,7 +62,7 @@ export function run(input) {
       if (c === 44) { value = text.slice(start, m); pos = m + 1; added = m - start; return COMMA; }
       if (c === 10) { value = text.slice(start, m); pos = m + 1; line++; added = m - start; return LINE_BREAK; }
       if (c === 34) { i = m + 1; continue; } // quote in unquoted field: literal char
-      // CR
+      // CR at m
       if (m + 1 < n && text.charCodeAt(m + 1) === 10) {
         value = text.slice(start, m); pos = m + 2; line++; added = m - start; return LINE_BREAK;
       }
@@ -72,22 +82,27 @@ export function run(input) {
       const q = text.indexOf('"', p);
       if (q === -1) break;
       if (q + 1 < n && text.charCodeAt(q + 1) === 34) {
+        // doubled quote: the gap (counting CRLF and lone CR as lines) + one quote char
+        line += countBreaks(text, p, q + 1, true);
         acc += text.slice(p, q) + '"';
         p = q + 2;
         continue;
       }
+      line += countBreaks(text, p, q, true);
       acc += text.slice(p, q);
       p = q + 1;
       closed = true;
       break;
     }
     if (!closed) {
+      // unterminated: the reference restores line to the opening line, records the
+      // error, and re-reads as unquoted starting at the quote (a literal char).
       pos = open + 1;
       line = openLine;
       errors.push({ code: 'unterminated_quote', line: recordLine, row: recordRow });
       ended = readUnquoted();
       value = '"' + value;
-      added = 1 + added; // the literal quote counts as a kept char
+      added = 1 + added;
       return;
     }
     pos = p;
@@ -96,14 +111,17 @@ export function run(input) {
     if (c === 44) { pos++; value = acc; added = 0; ended = COMMA; return; }
     if (c === 10) { pos++; line++; value = acc; added = 0; ended = LINE_BREAK; return; }
     if (c === 13 && pos + 1 < n && text.charCodeAt(pos + 1) === 10) { pos += 2; line++; value = acc; added = 0; ended = LINE_BREAK; return; }
-    // junk after closing quote: appended as it stands via unquoted reading
+    // junk after the closing quote: appended as it stands via unquoted reading.
+    // The junk region is still unquoted: only LF/CRLF there moves the line
+    // (readUnquoted handles that), and quote_junk fires when it kept chars.
+    const accLen = acc.length;
     ended = readUnquoted();
     value = acc + value;
+    added = value.length - accLen;
     if (added > 0) errors.push({ code: 'quote_junk', line: recordLine, row: recordRow });
   }
 
   while (true) {
-    // skip empty lines
     while (pos < n) {
       const c = text.charCodeAt(pos);
       if (c === 10) { pos++; line++; }
@@ -120,7 +138,6 @@ export function run(input) {
       fields.push(value);
     } while (ended === COMMA);
 
-    // a line that held only stray CRs is left with no characters: no record
     if (fields.length === 1 && fields[0] === '' && !quoted) continue;
 
     if (width < 0) width = fields.length;
