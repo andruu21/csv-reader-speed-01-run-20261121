@@ -70,7 +70,7 @@ export function run(input) {
       const c = text.charCodeAt(m);
       if (c === 44) { value = acc + text.slice(i, m); pos = m + 1; added = m - start - skipped; return COMMA; }
       if (c === 10) { value = acc + text.slice(i, m); pos = m + 1; line++; added = m - start - skipped; return LINE_BREAK; }
-      if (c === 34) { i = m + 1; continue; } // quote in unquoted field: literal char (kept)
+      if (c === 34) { acc += text.slice(i, m) + String.fromCharCode(34); i = m + 1; continue; } // quote in unquoted field: literal char (kept)
       // CR at m
       if (m + 1 < n && text.charCodeAt(m + 1) === 10) {
         value = acc + text.slice(i, m); pos = m + 2; line++; added = m - start - skipped; return LINE_BREAK;
