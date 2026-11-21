@@ -24,6 +24,13 @@ function countBreaks(s, start, end, inQuotes) {
   return c;
 }
 
+
+// In a quoted field every CRLF and lone CR reads as one LF.
+function normQuotes(s) {
+  if (s.indexOf('\r') === -1) return s;
+  return s.replace(/\r\n|\r/g, '\n');
+}
+
 export function run(input) {
   const text = String(input.text);
   const header = input.header === true;
@@ -84,12 +91,12 @@ export function run(input) {
       if (q + 1 < n && text.charCodeAt(q + 1) === 34) {
         // doubled quote: the gap (counting CRLF and lone CR as lines) + one quote char
         line += countBreaks(text, p, q + 1, true);
-        acc += text.slice(p, q) + '"';
+        acc += normQuotes(text.slice(p, q)) + '"';
         p = q + 2;
         continue;
       }
       line += countBreaks(text, p, q, true);
-      acc += text.slice(p, q);
+      acc += normQuotes(text.slice(p, q));
       p = q + 1;
       closed = true;
       break;
