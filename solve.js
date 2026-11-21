@@ -53,8 +53,10 @@ export function run(input) {
 
   function readUnquoted() {
     quoted = false;
+    skipped = 0;
     let i = pos;
     const start = pos;
+    let acc = '';
     for (;;) {
       const nl = text.indexOf('\n', i);
       let m = nl === -1 ? n : nl;
@@ -64,19 +66,23 @@ export function run(input) {
       if (cr !== -1 && cr < m) m = cr;
       const q = text.indexOf('"', i);
       if (q !== -1 && q < m) m = q;
-      if (m === n) { value = text.slice(start, n); pos = n; added = n - start; return END; }
+      if (m === n) { value = acc + text.slice(i, n); pos = n; added = n - start - skipped; return END; }
       const c = text.charCodeAt(m);
-      if (c === 44) { value = text.slice(start, m); pos = m + 1; added = m - start; return COMMA; }
-      if (c === 10) { value = text.slice(start, m); pos = m + 1; line++; added = m - start; return LINE_BREAK; }
-      if (c === 34) { i = m + 1; continue; } // quote in unquoted field: literal char
+      if (c === 44) { value = acc + text.slice(i, m); pos = m + 1; added = m - start - skipped; return COMMA; }
+      if (c === 10) { value = acc + text.slice(i, m); pos = m + 1; line++; added = m - start - skipped; return LINE_BREAK; }
+      if (c === 34) { i = m + 1; continue; } // quote in unquoted field: literal char (kept)
       // CR at m
       if (m + 1 < n && text.charCodeAt(m + 1) === 10) {
-        value = text.slice(start, m); pos = m + 2; line++; added = m - start; return LINE_BREAK;
+        value = acc + text.slice(i, m); pos = m + 2; line++; added = m - start - skipped; return LINE_BREAK;
       }
+      // stray CR: dropped, keep reading after it
+      acc += text.slice(i, m);
+      skipped += 1;
       errors.push({ code: 'stray_cr', line: recordLine, row: recordRow });
       i = m + 1;
     }
   }
+  let skipped = 0;
 
   function readQuoted() {
     quoted = true;
